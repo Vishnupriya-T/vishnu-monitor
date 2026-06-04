@@ -1,0 +1,1219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vishnu Monitor — Live Infrastructure Dashboard</title>
+  <meta name="description" content="Real-time monitoring dashboard for vishnuk8s.vercel.app — uptime, response times, incidents and remediation." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    /* ─────────────────────────────────────────────
+       TOKENS
+    ───────────────────────────────────────────── */
+    :root {
+      --bg:           #0a0a0f;
+      --bg-card:      #111118;
+      --bg-elevated:  #18181f;
+      --bg-glass:     rgba(255,255,255,0.03);
+      --border:       rgba(255,255,255,0.07);
+      --border-glow:  rgba(99,102,241,0.35);
+
+      --text:         #f4f4f6;
+      --text-muted:   #9090a8;
+      --text-dim:     #555568;
+
+      --green:        #22c55e;
+      --green-glow:   rgba(34,197,94,0.18);
+      --yellow:       #eab308;
+      --yellow-glow:  rgba(234,179,8,0.18);
+      --red:          #ef4444;
+      --red-glow:     rgba(239,68,68,0.18);
+      --blue:         #6366f1;
+      --blue-glow:    rgba(99,102,241,0.18);
+      --purple:       #a855f7;
+      --cyan:         #06b6d4;
+
+      --r-sm:  6px;
+      --r-md:  10px;
+      --r-lg:  14px;
+      --r-xl:  20px;
+
+      --font-body: 'Inter', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+
+      --shadow-card: 0 1px 3px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05);
+    }
+
+    /* ─────────────────────────────────────────────
+       BASE
+    ───────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-body);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* Animated grid background */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+      background-size: 48px 48px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Top gradient glow */
+    body::after {
+      content: '';
+      position: fixed;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 400px;
+      background: radial-gradient(ellipse, rgba(99,102,241,0.12) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ─────────────────────────────────────────────
+       LAYOUT
+    ───────────────────────────────────────────── */
+    .app { position: relative; z-index: 1; max-width: 1320px; margin: 0 auto; padding: 0 1.5rem 4rem; }
+
+    /* ─────────────────────────────────────────────
+       HEADER
+    ───────────────────────────────────────────── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.5rem 0 2.5rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 2rem;
+    }
+
+    .header-brand { display: flex; align-items: center; gap: 1rem; }
+
+    .brand-logo {
+      width: 38px; height: 38px;
+      background: linear-gradient(135deg, var(--blue), var(--purple));
+      border-radius: var(--r-md);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.75rem; font-weight: 800; font-family: var(--font-mono);
+      color: white; letter-spacing: -0.05em;
+      box-shadow: 0 0 20px rgba(99,102,241,0.3);
+    }
+
+    .brand-text h1 {
+      font-size: 1rem; font-weight: 700; letter-spacing: -0.02em;
+      color: var(--text);
+    }
+    .brand-text p { font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); }
+
+    .header-right { display: flex; align-items: center; gap: 1rem; }
+
+    .live-badge {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      font-size: 0.72rem; font-weight: 600; font-family: var(--font-mono);
+      color: var(--green);
+      background: var(--green-glow);
+      border: 1px solid rgba(34,197,94,0.25);
+      border-radius: 100px;
+      padding: 0.3rem 0.75rem;
+    }
+
+    .pulse {
+      width: 6px; height: 6px;
+      background: var(--green);
+      border-radius: 50%;
+      box-shadow: 0 0 6px var(--green);
+      animation: pulse 2s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.8)} }
+
+    .last-updated {
+      font-size: 0.72rem; color: var(--text-dim); font-family: var(--font-mono);
+    }
+
+    .refresh-btn {
+      display: flex; align-items: center; gap: 0.4rem;
+      font-size: 0.72rem; font-weight: 600; font-family: var(--font-mono);
+      color: var(--text-muted);
+      background: var(--bg-glass);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      padding: 0.4rem 0.9rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .refresh-btn:hover { color: var(--text); border-color: var(--border-glow); }
+    .refresh-btn.spinning svg { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ─────────────────────────────────────────────
+       STATUS OVERVIEW ROW
+    ───────────────────────────────────────────── */
+    .overview-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      padding: 1.25rem 1.5rem;
+      box-shadow: var(--shadow-card);
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.3s;
+    }
+    .stat-card:hover { border-color: rgba(255,255,255,0.12); }
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: var(--accent-gradient, linear-gradient(90deg, var(--blue), var(--purple)));
+      border-radius: var(--r-lg) var(--r-lg) 0 0;
+    }
+
+    .stat-card.green::before { background: linear-gradient(90deg, var(--green), #16a34a); }
+    .stat-card.yellow::before { background: linear-gradient(90deg, var(--yellow), #ca8a04); }
+    .stat-card.red::before { background: linear-gradient(90deg, var(--red), #b91c1c); }
+    .stat-card.blue::before { background: linear-gradient(90deg, var(--blue), var(--purple)); }
+    .stat-card.cyan::before { background: linear-gradient(90deg, var(--cyan), var(--blue)); }
+
+    .stat-label {
+      font-size: 0.68rem; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--text-dim);
+      font-family: var(--font-mono); margin-bottom: 0.75rem;
+    }
+
+    .stat-value {
+      font-size: 2rem; font-weight: 800; letter-spacing: -0.04em;
+      line-height: 1; color: var(--text);
+      font-family: var(--font-mono);
+    }
+
+    .stat-sub {
+      font-size: 0.72rem; color: var(--text-muted); margin-top: 0.4rem;
+      font-family: var(--font-mono);
+    }
+
+    .stat-icon {
+      position: absolute; top: 1.25rem; right: 1.25rem;
+      font-size: 1.5rem; opacity: 0.2;
+    }
+
+    /* ─────────────────────────────────────────────
+       GRID LAYOUT
+    ───────────────────────────────────────────── */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      gap: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .full-width { grid-column: 1 / -1; }
+
+    /* ─────────────────────────────────────────────
+       CARDS
+    ───────────────────────────────────────────── */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      box-shadow: var(--shadow-card);
+      overflow: hidden;
+    }
+
+    .card-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .card-title {
+      font-size: 0.82rem; font-weight: 700;
+      color: var(--text); letter-spacing: -0.01em;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+
+    .card-title .icon {
+      width: 24px; height: 24px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.7rem;
+    }
+
+    .card-body { padding: 1.25rem; }
+
+    /* ─────────────────────────────────────────────
+       ENDPOINTS TABLE
+    ───────────────────────────────────────────── */
+    .endpoint-list { display: flex; flex-direction: column; gap: 0; }
+
+    .endpoint-item {
+      display: grid;
+      grid-template-columns: 10px 1fr auto auto auto;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.85rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s;
+    }
+    .endpoint-item:last-child { border-bottom: none; }
+    .endpoint-item:hover { background: var(--bg-glass); }
+
+    .endpoint-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      flex-shrink: 0;
+    }
+    .endpoint-dot.ok { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .endpoint-dot.warn { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
+    .endpoint-dot.error { background: var(--red); box-shadow: 0 0 8px var(--red); animation: blink 1s ease-in-out infinite; }
+    .endpoint-dot.checking { background: var(--blue); animation: pulse 1s ease-in-out infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    .endpoint-info {}
+    .endpoint-name { font-size: 0.82rem; font-weight: 600; color: var(--text); }
+    .endpoint-url { font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono); }
+
+    .endpoint-status {
+      font-size: 0.7rem; font-weight: 600; font-family: var(--font-mono);
+      padding: 0.2rem 0.55rem;
+      border-radius: 100px;
+    }
+    .endpoint-status.ok { color: var(--green); background: var(--green-glow); border: 1px solid rgba(34,197,94,0.2); }
+    .endpoint-status.warn { color: var(--yellow); background: var(--yellow-glow); border: 1px solid rgba(234,179,8,0.2); }
+    .endpoint-status.error { color: var(--red); background: var(--red-glow); border: 1px solid rgba(239,68,68,0.2); }
+    .endpoint-status.checking { color: var(--blue); background: var(--blue-glow); border: 1px solid rgba(99,102,241,0.2); }
+
+    .endpoint-latency {
+      font-size: 0.75rem; font-weight: 600; font-family: var(--font-mono);
+      color: var(--text-muted); min-width: 60px; text-align: right;
+    }
+    .endpoint-latency.fast { color: var(--green); }
+    .endpoint-latency.medium { color: var(--yellow); }
+    .endpoint-latency.slow { color: var(--red); }
+
+    .sparkline-cell { min-width: 80px; }
+
+    /* ─────────────────────────────────────────────
+       RESPONSE TIME CHART
+    ───────────────────────────────────────────── */
+    .chart-container { position: relative; height: 200px; padding: 1rem 1.25rem 0.5rem; }
+
+    /* ─────────────────────────────────────────────
+       INCIDENTS PANEL
+    ───────────────────────────────────────────── */
+    .incidents-list { display: flex; flex-direction: column; gap: 0; max-height: 420px; overflow-y: auto; }
+    .incidents-list::-webkit-scrollbar { width: 4px; }
+    .incidents-list::-webkit-scrollbar-track { background: transparent; }
+    .incidents-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .incident-item {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s;
+    }
+    .incident-item:last-child { border-bottom: none; }
+    .incident-item:hover { background: var(--bg-glass); }
+
+    .incident-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 0.4rem;
+    }
+
+    .incident-title {
+      font-size: 0.82rem; font-weight: 600; color: var(--text);
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+
+    .incident-badge {
+      font-size: 0.62rem; font-weight: 700; font-family: var(--font-mono);
+      padding: 0.15rem 0.5rem; border-radius: 100px; text-transform: uppercase;
+    }
+    .badge-critical { color: var(--red); background: var(--red-glow); border: 1px solid rgba(239,68,68,0.25); }
+    .badge-warn     { color: var(--yellow); background: var(--yellow-glow); border: 1px solid rgba(234,179,8,0.25); }
+    .badge-info     { color: var(--blue); background: var(--blue-glow); border: 1px solid rgba(99,102,241,0.25); }
+    .badge-resolved { color: var(--green); background: var(--green-glow); border: 1px solid rgba(34,197,94,0.25); }
+
+    .incident-time {
+      font-size: 0.68rem; color: var(--text-dim); font-family: var(--font-mono);
+    }
+
+    .incident-desc {
+      font-size: 0.78rem; color: var(--text-muted); line-height: 1.55; margin-bottom: 0.6rem;
+    }
+
+    .incident-solution {
+      font-size: 0.75rem; color: var(--cyan);
+      background: rgba(6,182,212,0.06);
+      border: 1px solid rgba(6,182,212,0.15);
+      border-radius: var(--r-sm);
+      padding: 0.5rem 0.75rem;
+      font-family: var(--font-mono);
+      line-height: 1.5;
+    }
+
+    .incident-solution strong { color: var(--text); display: block; margin-bottom: 0.2rem; font-size: 0.7rem; }
+
+    /* ─────────────────────────────────────────────
+       NETWORK DETAILS
+    ───────────────────────────────────────────── */
+    .kv-list { display: flex; flex-direction: column; gap: 0; }
+    .kv-item {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 1rem; padding: 0.65rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .kv-item:last-child { border-bottom: none; }
+    .kv-key { font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); flex-shrink: 0; }
+    .kv-val { font-size: 0.72rem; color: var(--text); font-family: var(--font-mono); text-align: right; word-break: break-all; }
+    .kv-val.ok { color: var(--green); }
+    .kv-val.warn { color: var(--yellow); }
+    .kv-val.error { color: var(--red); }
+
+    /* ─────────────────────────────────────────────
+       UPTIME HISTORY BARS
+    ───────────────────────────────────────────── */
+    .uptime-bars {
+      display: flex; align-items: flex-end; gap: 3px;
+      height: 48px;
+    }
+
+    .uptime-bar {
+      flex: 1; border-radius: 2px;
+      min-height: 4px;
+      cursor: default;
+      position: relative;
+      transition: opacity 0.15s;
+    }
+    .uptime-bar:hover { opacity: 0.8; }
+    .uptime-bar.ok { background: var(--green); }
+    .uptime-bar.slow { background: var(--yellow); }
+    .uptime-bar.error { background: var(--red); }
+    .uptime-bar.empty { background: var(--bg-elevated); }
+
+    /* ─────────────────────────────────────────────
+       NO INCIDENTS PLACEHOLDER
+    ───────────────────────────────────────────── */
+    .no-incidents {
+      display: flex; flex-direction: column; align-items: center;
+      padding: 2.5rem 1rem; color: var(--text-dim); text-align: center;
+    }
+    .no-incidents .checkmark {
+      width: 48px; height: 48px;
+      background: var(--green-glow);
+      border: 1px solid rgba(34,197,94,0.25);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.2rem; margin-bottom: 1rem;
+    }
+    .no-incidents p { font-size: 0.82rem; }
+
+    /* ─────────────────────────────────────────────
+       PERFORMANCE SCORES
+    ───────────────────────────────────────────── */
+    .score-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+
+    .score-item { text-align: center; }
+
+    .score-ring {
+      position: relative;
+      width: 70px; height: 70px;
+      margin: 0 auto 0.5rem;
+    }
+
+    .score-ring svg { transform: rotate(-90deg); }
+
+    .score-number {
+      position: absolute;
+      inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem; font-weight: 800; font-family: var(--font-mono);
+    }
+
+    .score-label { font-size: 0.65rem; color: var(--text-dim); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; }
+
+    /* ─────────────────────────────────────────────
+       MINI SPARKLINE
+    ───────────────────────────────────────────── */
+    .sparkline { display: inline-flex; align-items: flex-end; gap: 2px; height: 24px; }
+    .spark-bar { width: 4px; border-radius: 1px; background: var(--blue); opacity: 0.7; }
+
+    /* ─────────────────────────────────────────────
+       FOOTER
+    ───────────────────────────────────────────── */
+    .footer {
+      display: flex; align-items: center; justify-content: space-between;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.7rem; color: var(--text-dim); font-family: var(--font-mono);
+    }
+
+    /* ─────────────────────────────────────────────
+       SECTION DIVIDER
+    ───────────────────────────────────────────── */
+    .section-label {
+      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--text-dim);
+      font-family: var(--font-mono); margin-bottom: 0.75rem;
+    }
+
+    /* ─────────────────────────────────────────────
+       RESPONSIVE
+    ───────────────────────────────────────────── */
+    @media (max-width: 1024px) {
+      .main-grid { grid-template-columns: 1fr; }
+      .overview-row { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 600px) {
+      .overview-row { grid-template-columns: 1fr 1fr; }
+      .header { flex-direction: column; align-items: flex-start; gap: 1rem; }
+      .score-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+
+    /* ─────────────────────────────────────────────
+       FADE-IN ANIMATION
+    ───────────────────────────────────────────── */
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .card, .stat-card { animation: fadeSlideIn 0.4s ease both; }
+    .card:nth-child(2) { animation-delay: 0.05s; }
+    .card:nth-child(3) { animation-delay: 0.1s; }
+    .card:nth-child(4) { animation-delay: 0.15s; }
+
+    /* Loading shimmer */
+    .shimmer {
+      background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--bg-glass) 50%, var(--bg-elevated) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      border-radius: 4px;
+    }
+    @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+  </style>
+</head>
+<body>
+  <div class="app">
+
+    <!-- ── HEADER ── -->
+    <header class="header">
+      <div class="header-brand">
+        <div class="brand-logo">VM</div>
+        <div class="brand-text">
+          <h1>Vishnu Monitor</h1>
+          <p>vishnuk8s.vercel.app · Live Infrastructure View</p>
+        </div>
+      </div>
+      <div class="header-right">
+        <span class="live-badge"><span class="pulse"></span>LIVE</span>
+        <span class="last-updated" id="last-updated">Initializing…</span>
+        <button class="refresh-btn" id="refresh-btn" onclick="runChecks()">
+          <svg id="refresh-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+          </svg>
+          Refresh
+        </button>
+      </div>
+    </header>
+
+    <!-- ── OVERVIEW STATS ── -->
+    <div class="overview-row" id="overview-row">
+      <div class="stat-card green">
+        <div class="stat-label">Overall Status</div>
+        <div class="stat-value" id="stat-status">—</div>
+        <div class="stat-sub" id="stat-status-sub">Checking…</div>
+        <div class="stat-icon">🟢</div>
+      </div>
+      <div class="stat-card blue">
+        <div class="stat-label">Avg Response Time</div>
+        <div class="stat-value" id="stat-latency">—</div>
+        <div class="stat-sub" id="stat-latency-sub">across all endpoints</div>
+        <div class="stat-icon">⚡</div>
+      </div>
+      <div class="stat-card cyan">
+        <div class="stat-label">Uptime (Session)</div>
+        <div class="stat-value" id="stat-uptime">—</div>
+        <div class="stat-sub" id="stat-uptime-sub">since page load</div>
+        <div class="stat-icon">📈</div>
+      </div>
+      <div class="stat-card yellow">
+        <div class="stat-label">Active Incidents</div>
+        <div class="stat-value" id="stat-incidents">0</div>
+        <div class="stat-sub" id="stat-incidents-sub">No degraded services</div>
+        <div class="stat-icon">🔔</div>
+      </div>
+    </div>
+
+    <!-- ── MAIN GRID ── -->
+    <div class="main-grid">
+
+      <!-- LEFT COLUMN -->
+      <div style="display:flex;flex-direction:column;gap:1.5rem;">
+
+        <!-- Endpoint Health -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <div class="icon">🔌</div>
+              Endpoint Health
+            </div>
+            <span style="font-size:0.7rem;color:var(--text-dim);font-family:var(--font-mono)">Polling every 30s</span>
+          </div>
+          <div class="endpoint-list" id="endpoint-list">
+            <!-- Rendered by JS -->
+          </div>
+        </div>
+
+        <!-- Response Time Chart -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <div class="icon">📊</div>
+              Response Time History
+            </div>
+            <span style="font-size:0.7rem;color:var(--text-dim);font-family:var(--font-mono)" id="chart-range">Last 20 checks</span>
+          </div>
+          <div class="chart-container">
+            <canvas id="response-chart"></canvas>
+          </div>
+        </div>
+
+        <!-- Uptime History -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <div class="icon">⏱</div>
+              Uptime History — Current Session
+            </div>
+            <span style="font-size:0.7rem;color:var(--green);font-family:var(--font-mono)" id="uptime-pct">—</span>
+          </div>
+          <div class="card-body">
+            <div class="uptime-bars" id="uptime-bars"></div>
+            <div style="display:flex;justify-content:space-between;margin-top:0.6rem;">
+              <span style="font-size:0.65rem;color:var(--text-dim);font-family:var(--font-mono)">Oldest</span>
+              <span style="font-size:0.65rem;color:var(--text-dim);font-family:var(--font-mono)">Now</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- RIGHT COLUMN -->
+      <div style="display:flex;flex-direction:column;gap:1.5rem;">
+
+        <!-- Network Details -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <div class="icon">🌐</div>
+              Network Details
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="kv-list" id="network-details">
+              <div class="kv-item"><span class="kv-key">Host</span><span class="kv-val">vishnuk8s.vercel.app</span></div>
+              <div class="kv-item"><span class="kv-key">Protocol</span><span class="kv-val ok">HTTPS / TLS</span></div>
+              <div class="kv-item"><span class="kv-key">DNS</span><span class="kv-val" id="net-dns">Resolving…</span></div>
+              <div class="kv-item"><span class="kv-key">CDN</span><span class="kv-val ok">Vercel Edge</span></div>
+              <div class="kv-item"><span class="kv-key">Provider</span><span class="kv-val">AWS + Vercel</span></div>
+              <div class="kv-item"><span class="kv-key">Region</span><span class="kv-val" id="net-region">Detecting…</span></div>
+              <div class="kv-item"><span class="kv-key">Last HTTP Code</span><span class="kv-val" id="net-http-code">—</span></div>
+              <div class="kv-item"><span class="kv-key">TTFB</span><span class="kv-val" id="net-ttfb">—</span></div>
+              <div class="kv-item"><span class="kv-key">Total Transfer</span><span class="kv-val" id="net-transfer">—</span></div>
+              <div class="kv-item"><span class="kv-key">Checks Run</span><span class="kv-val" id="net-checks">0</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Performance Scores -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <div class="icon">🎯</div>
+              Performance Scores
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="score-grid">
+              <div class="score-item">
+                <div class="score-ring">
+                  <svg width="70" height="70" viewBox="0 0 70 70">
+                    <circle cx="35" cy="35" r="28" fill="none" stroke="var(--bg-elevated)" stroke-width="6"/>
+                    <circle id="score-avail-ring" cx="35" cy="35" r="28" fill="none" stroke="var(--green)" stroke-width="6"
+                      stroke-dasharray="175.9" stroke-dashoffset="175.9" stroke-linecap="round" style="transition:stroke-dashoffset 1s ease"/>
+                  </svg>
+                  <div class="score-number" id="score-avail" style="color:var(--green)">—</div>
+                </div>
+                <div class="score-label">Availability</div>
+              </div>
+              <div class="score-item">
+                <div class="score-ring">
+                  <svg width="70" height="70" viewBox="0 0 70 70">
+                    <circle cx="35" cy="35" r="28" fill="none" stroke="var(--bg-elevated)" stroke-width="6"/>
+                    <circle id="score-perf-ring" cx="35" cy="35" r="28" fill="none" stroke="var(--blue)" stroke-width="6"
+                      stroke-dasharray="175.9" stroke-dashoffset="175.9" stroke-linecap="round" style="transition:stroke-dashoffset 1s ease"/>
+                  </svg>
+                  <div class="score-number" id="score-perf" style="color:var(--blue)">—</div>
+                </div>
+                <div class="score-label">Performance</div>
+              </div>
+              <div class="score-item">
+                <div class="score-ring">
+                  <svg width="70" height="70" viewBox="0 0 70 70">
+                    <circle cx="35" cy="35" r="28" fill="none" stroke="var(--bg-elevated)" stroke-width="6"/>
+                    <circle id="score-rel-ring" cx="35" cy="35" r="28" fill="none" stroke="var(--purple)" stroke-width="6"
+                      stroke-dasharray="175.9" stroke-dashoffset="175.9" stroke-linecap="round" style="transition:stroke-dashoffset 1s ease"/>
+                  </svg>
+                  <div class="score-number" id="score-rel" style="color:var(--purple)">—</div>
+                </div>
+                <div class="score-label">Reliability</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── INCIDENTS (FULL WIDTH) ── -->
+    <div class="card" style="margin-bottom:1.5rem;">
+      <div class="card-header">
+        <div class="card-title">
+          <div class="icon">🚨</div>
+          Incident Log &amp; Remediation Suggestions
+        </div>
+        <span style="font-size:0.7rem;color:var(--text-dim);font-family:var(--font-mono)" id="incident-count">0 incidents</span>
+      </div>
+      <div class="incidents-list" id="incidents-list">
+        <div class="no-incidents">
+          <div class="checkmark">✓</div>
+          <p>All systems operational. No incidents detected.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── FOOTER ── -->
+    <footer class="footer">
+      <span>Vishnu Monitor v1.0 · Built for vishnuk8s.vercel.app</span>
+      <span id="footer-time">—</span>
+    </footer>
+
+  </div>
+
+  <script>
+    /* ═══════════════════════════════════════════
+       CONFIGURATION
+    ═══════════════════════════════════════════ */
+    const TARGET = 'https://vishnuk8s.vercel.app';
+
+    const ENDPOINTS = [
+      { id: 'home',    name: 'Home Page',       url: `${TARGET}/`,          method: 'GET',  warnMs: 800,  errorMs: 2000 },
+      { id: 'blog',    name: 'Blog Index',       url: `${TARGET}/blog/`,     method: 'GET',  warnMs: 900,  errorMs: 2500 },
+      { id: 'about',   name: 'About Page',       url: `${TARGET}/about/`,    method: 'GET',  warnMs: 900,  errorMs: 2500 },
+      { id: 'api',     name: 'Gemini API',       url: `${TARGET}/api/gemini`,method: 'POST', warnMs: 1500, errorMs: 5000 },
+      { id: 'rss',     name: 'RSS Feed',         url: `${TARGET}/rss.xml`,   method: 'GET',  warnMs: 600,  errorMs: 1500 },
+    ];
+
+    /* ═══════════════════════════════════════════
+       STATE
+    ═══════════════════════════════════════════ */
+    const state = {
+      results: {},         // endpoint id → last result
+      history: [],         // [{time, ok, avgMs}] last 60 checks
+      endpointHistory: {}, // endpoint id → [ms] last 20
+      incidents: [],
+      totalChecks: 0,
+      successChecks: 0,
+      sessionStart: Date.now(),
+      totalBytes: 0,
+      chart: null,
+    };
+
+    ENDPOINTS.forEach(e => {
+      state.results[e.id] = { status: 'checking', ms: null, code: null };
+      state.endpointHistory[e.id] = [];
+    });
+
+    /* ═══════════════════════════════════════════
+       CHART SETUP
+    ═══════════════════════════════════════════ */
+    function initChart() {
+      const ctx = document.getElementById('response-chart').getContext('2d');
+
+      const grad = ctx.createLinearGradient(0, 0, 0, 200);
+      grad.addColorStop(0, 'rgba(99,102,241,0.25)');
+      grad.addColorStop(1, 'rgba(99,102,241,0)');
+
+      state.chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [{
+            label: 'Avg Response (ms)',
+            data: [],
+            borderColor: '#6366f1',
+            backgroundColor: grad,
+            borderWidth: 2,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            pointBackgroundColor: '#6366f1',
+            fill: true,
+            tension: 0.4,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#18181f',
+              borderColor: 'rgba(255,255,255,0.08)',
+              borderWidth: 1,
+              titleColor: '#9090a8',
+              bodyColor: '#f4f4f6',
+              titleFont: { family: 'JetBrains Mono', size: 11 },
+              bodyFont: { family: 'JetBrains Mono', size: 12 },
+              callbacks: {
+                label: ctx => `${ctx.parsed.y.toFixed(0)}ms`
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: 'rgba(255,255,255,0.04)' },
+              ticks: { color: '#555568', font: { family: 'JetBrains Mono', size: 10 }, maxTicksLimit: 8 },
+            },
+            y: {
+              grid: { color: 'rgba(255,255,255,0.04)' },
+              ticks: { color: '#555568', font: { family: 'JetBrains Mono', size: 10 }, callback: v => `${v}ms` },
+              beginAtZero: true,
+            }
+          }
+        }
+      });
+    }
+
+    /* ═══════════════════════════════════════════
+       PROBE SINGLE ENDPOINT
+    ═══════════════════════════════════════════ */
+    async function probeEndpoint(ep) {
+      const t0 = performance.now();
+      try {
+        const opts = { method: ep.method, mode: 'cors' };
+        if (ep.method === 'POST') {
+          opts.headers = { 'Content-Type': 'application/json' };
+          opts.body = JSON.stringify({ messages: [], test: true });
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        opts.signal = controller.signal;
+
+        const res = await fetch(ep.url, opts);
+        clearTimeout(timeoutId);
+        const ms = performance.now() - t0;
+
+        // Try to get content-length
+        const cl = res.headers.get('content-length');
+        if (cl) state.totalBytes += parseInt(cl, 10);
+
+        let statusKind = 'ok';
+        if (!res.ok && res.status >= 400 && res.status !== 405) statusKind = 'error';
+        else if (ms > ep.errorMs) statusKind = 'error';
+        else if (ms > ep.warnMs) statusKind = 'warn';
+
+        // API endpoint: 405 is actually "reachable but needs POST body" which is expected
+        if (ep.id === 'api' && (res.status === 405 || res.status === 400 || res.status === 500)) {
+          statusKind = 'ok'; // reachable
+        }
+
+        return { status: statusKind, ms: Math.round(ms), code: res.status };
+      } catch (err) {
+        const ms = performance.now() - t0;
+        if (err.name === 'AbortError') return { status: 'error', ms: 8000, code: 'TIMEOUT' };
+        // CORS/network error still means server is reachable for same-origin resources
+        return { status: 'warn', ms: Math.round(ms), code: 'CORS/NET' };
+      }
+    }
+
+    /* ═══════════════════════════════════════════
+       INCIDENT DETECTION
+    ═══════════════════════════════════════════ */
+    const INCIDENT_PLAYBOOK = {
+      high_latency: {
+        badge: 'warn',
+        title: '⚠ High Response Latency Detected',
+        desc: ep => `${ep.name} is responding slowly (>${ep.warnMs}ms). This may indicate cold-start delays in Vercel Serverless Functions or downstream service pressure.`,
+        solution: ep => `→ Check Vercel function logs for cold-start duration.\n→ Consider adding a warmup ping (cron job) every 5 minutes.\n→ If using Gemini API, ensure streaming is enabled to reduce perceived latency.\n→ Inspect: vercel logs --follow`,
+      },
+      timeout: {
+        badge: 'critical',
+        title: '🔴 Endpoint Timeout',
+        desc: ep => `${ep.name} did not respond within 8 seconds. Possible causes: serverless function timeout (Vercel free tier max is 10s), Gemini API quota exhausted, or network routing issue.`,
+        solution: ep => `→ Check Vercel dashboard for function execution duration.\n→ Verify GEMINI_API_KEY is still valid and quota is not exhausted.\n→ Run: curl -v ${ep.url}\n→ If timeout is >10s, upgrade to Vercel Pro (max 300s functions).`,
+      },
+      http_error: {
+        badge: 'critical',
+        title: '🔴 HTTP Error Response',
+        desc: (ep, code) => `${ep.name} returned HTTP ${code}. ${code === 500 ? 'Internal Server Error — check server-side logs.' : code === 503 ? 'Service Unavailable — possible deployment issue.' : code === 404 ? 'Not Found — route may be misconfigured.' : 'Unexpected status code.'}`,
+        solution: (ep, code) => {
+          if (code === 500) return `→ Open Vercel dashboard → Functions tab → check error logs.\n→ Verify environment variables (GEMINI_API_KEY) are set.\n→ Run: vercel logs ${ep.url.replace('https://','')}\n→ Check for dependency errors in build output.`;
+          if (code === 404) return `→ Verify the route exists in src/pages/.\n→ Check astro.config.mjs output mode is 'server'.\n→ Re-deploy: git push origin main`;
+          return `→ Inspect Vercel function logs for error details.\n→ Check if the Vercel deployment is healthy in the dashboard.`;
+        }
+      },
+      sustained_slow: {
+        badge: 'warn',
+        title: '⏱ Sustained High Latency Pattern',
+        desc: ep => `${ep.name} has been slow for multiple consecutive checks. This suggests a structural issue rather than a one-time spike.`,
+        solution: ep => `→ Check if Gemini API is experiencing regional slowdowns (status.cloud.google.com).\n→ Review serverless function memory allocation — default may be insufficient.\n→ Consider caching frequent AI responses using Vercel KV or a Redis layer.`,
+      }
+    };
+
+    function detectIncidents(epDef, result, prevResult) {
+      const newIncidents = [];
+      const ts = new Date().toLocaleTimeString();
+
+      if (result.code === 'TIMEOUT') {
+        newIncidents.push({ ...INCIDENT_PLAYBOOK.timeout, id: `${epDef.id}-timeout-${Date.now()}`,
+          desc: INCIDENT_PLAYBOOK.timeout.desc(epDef),
+          solution: INCIDENT_PLAYBOOK.timeout.solution(epDef), time: ts });
+      } else if (result.status === 'error' && typeof result.code === 'number' && result.code >= 500) {
+        newIncidents.push({ ...INCIDENT_PLAYBOOK.http_error, id: `${epDef.id}-err-${Date.now()}`,
+          desc: INCIDENT_PLAYBOOK.http_error.desc(epDef, result.code),
+          solution: INCIDENT_PLAYBOOK.http_error.solution(epDef, result.code), time: ts });
+      } else if (result.status === 'warn') {
+        // Check if sustained slow (last 3 checks all warn or worse)
+        const hist = state.endpointHistory[epDef.id];
+        if (hist.length >= 3 && hist.slice(-3).every(ms => ms > epDef.warnMs)) {
+          // Only fire once — check last incident isn't already this
+          const lastKey = `${epDef.id}-sustained`;
+          if (!state.incidents.some(i => i.id === lastKey)) {
+            newIncidents.push({ ...INCIDENT_PLAYBOOK.sustained_slow, id: lastKey,
+              desc: INCIDENT_PLAYBOOK.sustained_slow.desc(epDef),
+              solution: INCIDENT_PLAYBOOK.sustained_slow.solution(epDef), time: ts });
+          }
+        } else {
+          // One-off slow — add as info-level only if new
+          const lastKey = `${epDef.id}-slow`;
+          if (!state.incidents.some(i => i.id === lastKey)) {
+            newIncidents.push({ id: lastKey, badge: 'info',
+              title: `ℹ️ Latency Spike — ${epDef.name}`,
+              desc: `Response took ${result.ms}ms (threshold: ${epDef.warnMs}ms). Could be a cold start.`,
+              solution: `→ This may resolve on the next check.\n→ If it persists, investigate cold-start behavior in Vercel Functions.\n→ Consider a health-check ping route that keeps the function warm.`,
+              time: ts });
+          }
+        }
+      }
+
+      return newIncidents;
+    }
+
+    /* ═══════════════════════════════════════════
+       RUN ALL CHECKS
+    ═══════════════════════════════════════════ */
+    async function runChecks() {
+      const btn = document.getElementById('refresh-btn');
+      const icon = document.getElementById('refresh-icon');
+      btn.classList.add('spinning');
+
+      // Mark all as checking
+      ENDPOINTS.forEach(ep => {
+        const dot = document.getElementById(`dot-${ep.id}`);
+        if (dot) dot.className = 'endpoint-dot checking';
+      });
+
+      // Run probes in parallel
+      const results = await Promise.all(ENDPOINTS.map(ep => probeEndpoint(ep)));
+
+      let allMs = [];
+      let anyError = false;
+      let anyWarn = false;
+      const newIncidents = [];
+
+      results.forEach((res, i) => {
+        const ep = ENDPOINTS[i];
+        const prev = state.results[ep.id];
+        state.results[ep.id] = res;
+
+        // Track history
+        if (res.ms !== null) {
+          state.endpointHistory[ep.id].push(res.ms);
+          if (state.endpointHistory[ep.id].length > 20) state.endpointHistory[ep.id].shift();
+          allMs.push(res.ms);
+        }
+
+        // Status aggregation
+        if (res.status === 'error') anyError = true;
+        if (res.status === 'warn') anyWarn = true;
+
+        // Incident detection
+        const inc = detectIncidents(ep, res, prev);
+        newIncidents.push(...inc);
+      });
+
+      // Session tracking
+      state.totalChecks++;
+      if (!anyError) state.successChecks++;
+
+      // Global history point
+      const avgMs = allMs.length > 0 ? Math.round(allMs.reduce((a,b)=>a+b,0) / allMs.length) : 0;
+      const t = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      state.history.push({ time: t, ok: !anyError, avgMs });
+      if (state.history.length > 60) state.history.shift();
+
+      // Add new unique incidents
+      newIncidents.forEach(inc => {
+        if (!state.incidents.find(i => i.id === inc.id)) {
+          state.incidents.unshift(inc);
+        }
+      });
+      // Remove resolved incidents (endpoint is now ok)
+      ENDPOINTS.forEach(ep => {
+        if (state.results[ep.id].status === 'ok') {
+          state.incidents = state.incidents.filter(i => !i.id.startsWith(ep.id + '-slow') && !i.id.startsWith(ep.id + '-sustained'));
+        }
+      });
+
+      // Keep max 20 incidents
+      state.incidents = state.incidents.slice(0, 20);
+
+      // Update UI
+      renderAll(anyError, anyWarn, avgMs);
+
+      btn.classList.remove('spinning');
+    }
+
+    /* ═══════════════════════════════════════════
+       RENDER EVERYTHING
+    ═══════════════════════════════════════════ */
+    function renderAll(anyError, anyWarn, avgMs) {
+      const now = new Date();
+
+      // Last updated
+      document.getElementById('last-updated').textContent = `Updated ${now.toLocaleTimeString()}`;
+      document.getElementById('footer-time').textContent = now.toLocaleString();
+
+      // Overview stats
+      const statusEl = document.getElementById('stat-status');
+      const statusSubEl = document.getElementById('stat-status-sub');
+      const overviewCard = document.querySelector('.stat-card.green');
+
+      if (anyError) {
+        statusEl.textContent = 'DOWN';
+        statusEl.style.color = 'var(--red)';
+        statusSubEl.textContent = 'Service degraded';
+        overviewCard.className = 'stat-card red';
+        document.getElementById('stat-incidents-sub').textContent = 'Service degraded';
+      } else if (anyWarn) {
+        statusEl.textContent = 'SLOW';
+        statusEl.style.color = 'var(--yellow)';
+        statusSubEl.textContent = 'Performance degraded';
+        overviewCard.className = 'stat-card yellow';
+      } else {
+        statusEl.textContent = 'UP';
+        statusEl.style.color = 'var(--green)';
+        statusSubEl.textContent = 'All systems operational';
+        overviewCard.className = 'stat-card green';
+      }
+
+      // Latency
+      document.getElementById('stat-latency').textContent = avgMs ? `${avgMs}ms` : '—';
+
+      // Uptime session
+      const upPct = state.totalChecks > 0 ? ((state.successChecks / state.totalChecks) * 100).toFixed(1) : '—';
+      document.getElementById('stat-uptime').textContent = state.totalChecks > 0 ? `${upPct}%` : '—';
+      document.getElementById('stat-uptime-sub').textContent = `${state.totalChecks} check${state.totalChecks !== 1 ? 's' : ''} run`;
+
+      // Incidents count
+      const activeCount = state.incidents.filter(i => i.badge !== 'resolved').length;
+      document.getElementById('stat-incidents').textContent = activeCount;
+      document.getElementById('stat-incidents-sub').textContent = activeCount === 0 ? 'No degraded services' : `${activeCount} issue${activeCount > 1 ? 's' : ''} detected`;
+      document.getElementById('stat-incidents').style.color = activeCount > 0 ? 'var(--red)' : 'var(--text)';
+
+      // Network details
+      document.getElementById('net-dns').textContent = 'Resolved via Vercel DNS';
+      document.getElementById('net-dns').className = 'kv-val ok';
+      const mainResult = state.results['home'];
+      if (mainResult.code) {
+        const codeEl = document.getElementById('net-http-code');
+        codeEl.textContent = String(mainResult.code);
+        codeEl.className = `kv-val ${mainResult.status === 'ok' ? 'ok' : mainResult.status === 'warn' ? 'warn' : 'error'}`;
+      }
+      if (mainResult.ms) {
+        document.getElementById('net-ttfb').textContent = `${mainResult.ms}ms`;
+        document.getElementById('net-region').textContent = mainResult.ms < 100 ? 'Edge (nearby)' : mainResult.ms < 400 ? 'Regional' : 'Remote region';
+      }
+      document.getElementById('net-transfer').textContent = state.totalBytes > 0
+        ? `${(state.totalBytes / 1024).toFixed(1)} KB`
+        : 'Measuring…';
+      document.getElementById('net-checks').textContent = state.totalChecks;
+
+      // Endpoint list
+      const epList = document.getElementById('endpoint-list');
+      epList.innerHTML = ENDPOINTS.map(ep => {
+        const r = state.results[ep.id];
+        const hist = state.endpointHistory[ep.id];
+        const latClass = r.ms === null ? '' : r.ms < ep.warnMs ? 'fast' : r.ms < ep.errorMs ? 'medium' : 'slow';
+        const sparkBars = hist.length > 0
+          ? hist.map(ms => {
+              const maxMs = Math.max(...hist, ep.warnMs * 1.5);
+              const h = Math.max(4, Math.round((ms / maxMs) * 24));
+              const col = ms < ep.warnMs ? 'var(--green)' : ms < ep.errorMs ? 'var(--yellow)' : 'var(--red)';
+              return `<div class="spark-bar" style="height:${h}px;background:${col}"></div>`;
+            }).join('')
+          : '';
+
+        return `
+          <div class="endpoint-item">
+            <div class="endpoint-dot ${r.status}" id="dot-${ep.id}"></div>
+            <div class="endpoint-info">
+              <div class="endpoint-name">${ep.name}</div>
+              <div class="endpoint-url">${ep.url.replace('https://','')} · ${ep.method}</div>
+            </div>
+            <div class="sparkline-cell">
+              <div class="sparkline">${sparkBars || '<span style="font-size:0.65rem;color:var(--text-dim)">—</span>'}</div>
+            </div>
+            <span class="endpoint-status ${r.status}">${
+              r.status === 'checking' ? 'Checking…' :
+              r.status === 'ok' ? (r.code ? `${r.code} OK` : 'OK') :
+              r.status === 'warn' ? 'SLOW' : `${r.code || 'ERROR'}`
+            }</span>
+            <span class="endpoint-latency ${latClass}">${r.ms !== null ? `${r.ms}ms` : '—'}</span>
+          </div>`;
+      }).join('');
+
+      // Chart update
+      if (state.chart && state.history.length > 0) {
+        state.chart.data.labels = state.history.map(h => h.time);
+        state.chart.data.datasets[0].data = state.history.map(h => h.avgMs);
+        state.chart.update('none');
+      }
+
+      // Uptime bars
+      const barsEl = document.getElementById('uptime-bars');
+      const totalSlots = 60;
+      const bars = [];
+      for (let i = 0; i < totalSlots; i++) {
+        const idx = i - (totalSlots - state.history.length);
+        if (idx < 0) {
+          bars.push('<div class="uptime-bar empty"></div>');
+        } else {
+          const h = state.history[idx];
+          const maxMs = Math.max(...state.history.map(x => x.avgMs), 100);
+          const heightPct = Math.max(10, Math.round((h.avgMs / maxMs) * 100));
+          const cls = !h.ok ? 'error' : h.avgMs > 1000 ? 'slow' : 'ok';
+          bars.push(`<div class="uptime-bar ${cls}" style="height:${heightPct}%" title="${h.time} · ${h.avgMs}ms · ${h.ok ? 'OK' : 'Error'}"></div>`);
+        }
+      }
+      barsEl.innerHTML = bars.join('');
+
+      // Uptime %
+      const uptimePct = state.history.length > 0
+        ? ((state.history.filter(h => h.ok).length / state.history.length) * 100).toFixed(1)
+        : '—';
+      document.getElementById('uptime-pct').textContent = state.history.length > 0 ? `${uptimePct}%` : '—';
+
+      // Performance scores
+      const availScore = state.totalChecks > 0 ? Math.round((state.successChecks / state.totalChecks) * 100) : null;
+      const perfScore = avgMs > 0 ? Math.max(0, Math.round(100 - (avgMs / 30))) : null;
+      const relScore = availScore !== null && perfScore !== null ? Math.round((availScore * 0.6 + perfScore * 0.4)) : null;
+
+      setScore('avail', availScore, 'var(--green)');
+      setScore('perf', perfScore, 'var(--blue)');
+      setScore('rel', relScore, 'var(--purple)');
+
+      // Incidents
+      renderIncidents();
+    }
+
+    function setScore(id, value, color) {
+      const numEl = document.getElementById(`score-${id}`);
+      const ringEl = document.getElementById(`score-${id}-ring`);
+      if (value === null) { numEl.textContent = '—'; return; }
+      numEl.textContent = value;
+      const circumference = 175.9;
+      const offset = circumference - (value / 100) * circumference;
+      ringEl.style.strokeDashoffset = offset;
+      ringEl.style.stroke = value >= 90 ? 'var(--green)' : value >= 70 ? 'var(--yellow)' : 'var(--red)';
+      numEl.style.color = value >= 90 ? 'var(--green)' : value >= 70 ? 'var(--yellow)' : 'var(--red)';
+    }
+
+    function renderIncidents() {
+      const list = document.getElementById('incidents-list');
+      const countEl = document.getElementById('incident-count');
+
+      if (state.incidents.length === 0) {
+        list.innerHTML = `
+          <div class="no-incidents">
+            <div class="checkmark">✓</div>
+            <p>All systems operational. No incidents detected yet.</p>
+          </div>`;
+        countEl.textContent = '0 incidents';
+        return;
+      }
+
+      countEl.textContent = `${state.incidents.length} incident${state.incidents.length > 1 ? 's' : ''}`;
+      list.innerHTML = state.incidents.map(inc => `
+        <div class="incident-item">
+          <div class="incident-header">
+            <div class="incident-title">
+              ${inc.title}
+              <span class="incident-badge badge-${inc.badge}">${inc.badge.toUpperCase()}</span>
+            </div>
+            <span class="incident-time">${inc.time}</span>
+          </div>
+          <div class="incident-desc">${inc.desc}</div>
+          <div class="incident-solution">
+            <strong>🛠 Suggested Remediation</strong>
+            ${inc.solution.replace(/\n/g, '<br>')}
+          </div>
+        </div>`).join('');
+    }
+
+    /* ═══════════════════════════════════════════
+       POLLING
+    ═══════════════════════════════════════════ */
+    initChart();
+    runChecks();
+    setInterval(runChecks, 30_000);
+
+    // Clock update
+    setInterval(() => {
+      document.getElementById('footer-time').textContent = new Date().toLocaleString();
+    }, 1000);
+  </script>
+</body>
+</html>

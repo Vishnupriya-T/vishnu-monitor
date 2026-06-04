@@ -1,0 +1,7 @@
+# Dependencies
+node_modules/
+.vercel/output/
+
+# OS
+.DS_Store
+Thumbs.db
