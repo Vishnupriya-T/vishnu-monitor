@@ -1,0 +1,9 @@
+{
+  "scannedAt": "2026-06-06",
+  "framework": "Vanilla static HTML/CSS/JavaScript",
+  "fontStack": "Inter and JetBrains Mono via Google Fonts",
+  "palette": "Inline CSS custom properties in index.html",
+  "motion": "motion-cut; no motion library dependency detected",
+  "spacing": "Local CSS spacing and radius tokens",
+  "preserve": ["single-file deployment", "Chart.js response graph", "30-second polling", "incident remediation logic"]
+}
